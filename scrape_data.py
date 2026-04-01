@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import json
 import sys
 
-def scrape_necc(month="01", year="2026", report_type="Daily Rate Sheet"):
+def scrape_necc(month="03", year="2026", report_type="Daily Rate Sheet"):
     url = "https://e2necc.com/home/eggprice"
     payload = {
         "ddlMonth": month,
@@ -43,7 +43,10 @@ def scrape_necc(month="01", year="2026", report_type="Daily Rate Sheet"):
 def clean_data(raw_data):
     if isinstance(raw_data, dict) and "error" in raw_data:
         return raw_data
-        
+
+    if not isinstance(raw_data, list):
+        return {"error": "Unexpected data format"}
+
     cities_data = []
     for row in raw_data:
         if len(row) > 30 and row[0] not in ["Name Of Zone / Day", "NECC SUGGESTED EGG PRICES"]:
@@ -60,7 +63,7 @@ def clean_data(raw_data):
     return cities_data
 
 if __name__ == "__main__":
-    m = sys.argv[1] if len(sys.argv) > 1 else "01"
+    m = sys.argv[1] if len(sys.argv) > 1 else "03"
     y = sys.argv[2] if len(sys.argv) > 2 else "2026"
     t = sys.argv[3] if len(sys.argv) > 3 else "Daily Rate Sheet"
     
