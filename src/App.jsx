@@ -12,6 +12,8 @@ import { TrendLine, PieChart, BarChart } from './components/Charts';
 import { SelectionBar } from './components/Filters';
 import { ForecastChart } from './components/ForecastChart';
 import { ForecastControls } from './components/ForecastControls';
+import MarketAnalysis from './components/MarketAnalysis';
+import RiskAnalysis from './components/RiskAnalysis';
 import { generateForecast, movingAverage } from './utils/forecasting';
 import eggLogo from './assets/egg_logo.svg';
 
@@ -235,6 +237,14 @@ function App() {
                   <TrendLine data={currentTrend} color="var(--primary)" width={800} height={300} />
                 )}
               </div>
+            </div>
+          ) : mode === 'market-analysis' ? (
+            <div className="visual-card glass-card span-2">
+              <MarketAnalysis livePrices={livePrices} loading={loading} />
+            </div>
+          ) : mode === 'risk-analysis' ? (
+            <div className="visual-card glass-card span-2">
+              <RiskAnalysis livePrices={livePrices} loading={loading} />
             </div>
           ) : (
             <div className="visual-card glass-card span-2 forecast-section">
