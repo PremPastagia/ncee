@@ -14,6 +14,33 @@ import {
   ComparativeRiskBars,
 } from './RiskAnalysisCharts';
 
+/**
+ * Extract actual NECC prices from history data for a given city
+ */
+function extractRealPrices(cityName, historyData) {
+  const prices = [];
+  const dates = [];
+  if (!historyData || !Array.isArray(historyData)) return { prices, dates };
+
+  historyData.forEach(monthData => {
+    if (!monthData.data || !Array.isArray(monthData.data)) return;
+    const cityData = monthData.data.find(
+      c => c.city && c.city.toLowerCase().includes(cityName.toLowerCase())
+    );
+    if (cityData && cityData.dailyPrices) {
+      cityData.dailyPrices.forEach(dp => {
+        prices.push(dp.price);
+        dates.push(dp.date);
+      });
+    }
+  });
+
+  return { prices, dates };
+}
+
+/**
+ * Fallback: generate synthetic prices when real data isn't available
+ */
 function generateHistorical(cityName, livePrices, months) {
   const today = new Date();
   const baseLive = livePrices.find(
@@ -41,7 +68,7 @@ function generateHistorical(cityName, livePrices, months) {
   return { prices, dates };
 }
 
-const RiskAnalysis = ({ livePrices = [], loading = false }) => {
+const RiskAnalysis = ({ livePrices = [], loading = false, historyData = null, historyLoading = false }) => {
   const [producerState, setProducerState] = useState('namakkal');
   const [consumerState, setConsumerState] = useState('delhi');
   const [months, setMonths] = useState(6);
@@ -49,6 +76,7 @@ const RiskAnalysis = ({ livePrices = [], loading = false }) => {
   const [report, setReport] = useState(null);
   const [computing, setComputing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [usingRealData, setUsingRealData] = useState(false);
 
   useEffect(() => {
     if (livePrices.length === 0) return;
@@ -56,8 +84,27 @@ const RiskAnalysis = ({ livePrices = [], loading = false }) => {
     const timer = setTimeout(() => {
       const pCity = STATE_TO_CITY[producerState] || 'Namakkal';
       const cCity = STATE_TO_CITY[consumerState] || 'Delhi';
-      const pData = generateHistorical(pCity, livePrices, months);
-      const cData = generateHistorical(cCity, livePrices, months);
+
+      let pData, cData;
+
+      // Try actual NECC data first
+      if (historyData && Array.isArray(historyData) && historyData.length > 0) {
+        pData = extractRealPrices(pCity, historyData);
+        cData = extractRealPrices(cCity, historyData);
+
+        if (pData.prices.length > 10 && cData.prices.length > 10) {
+          setUsingRealData(true);
+        } else {
+          pData = generateHistorical(pCity, livePrices, months);
+          cData = generateHistorical(cCity, livePrices, months);
+          setUsingRealData(false);
+        }
+      } else {
+        pData = generateHistorical(pCity, livePrices, months);
+        cData = generateHistorical(cCity, livePrices, months);
+        setUsingRealData(false);
+      }
+
       const pLabel = STATE_CATEGORIES.producers.find(s => s.id === producerState)?.label || pCity;
       const cLabel = STATE_CATEGORIES.consumers.find(s => s.id === consumerState)?.label || cCity;
       const r = fullRiskAnalysis(
@@ -73,7 +120,7 @@ const RiskAnalysis = ({ livePrices = [], loading = false }) => {
       setComputing(false);
     }, 250);
     return () => clearTimeout(timer);
-  }, [producerState, consumerState, months, threshold, livePrices]);
+  }, [producerState, consumerState, months, threshold, livePrices, historyData]);
 
   const tabs = [
     { id: 'overview', label: '🏠 Overview' },
@@ -89,8 +136,19 @@ const RiskAnalysis = ({ livePrices = [], loading = false }) => {
         <div>
           <h3 className="ra-title">Price Stability, Shock Detection &amp; Risk Analysis</h3>
           <p className="ra-subtitle">
-            Evaluate price volatility, detect abnormal price movements using %ΔP and Z-Score methods, and quantify risk through Volatility-Based and Downside Risk indices.
+            Evaluate price volatility, detect abnormal price movements using %ΔP and Z-Score methods,
+            and quantify risk through Volatility-Based and Downside Risk indices.
           </p>
+          {historyLoading && (
+            <p style={{ color: '#FFD700', fontSize: '0.85rem', marginTop: '6px' }}>
+              ⚡ Fetching 6 months of actual NECC data for risk analysis...
+            </p>
+          )}
+          {!historyLoading && (
+            <p style={{ color: usingRealData ? '#4CAF50' : '#FF9800', fontSize: '0.8rem', marginTop: '6px' }}>
+              {usingRealData ? '✅ Using actual NECC scraped data' : '⚠️ Using price-seeded model (history loading...)'}
+            </p>
+          )}
         </div>
       </div>
 

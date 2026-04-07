@@ -42,13 +42,13 @@ export const SelectionBar = ({ selectedDate, onDateChange, range, onRangeChange,
                     className={mode === 'daily' ? 'active' : ''}
                     onClick={() => setMode('daily')}
                 >
-                    📊 Daily Overview
+                    📊 Overview
                 </button>
                 <button
                     className={mode === 'trend' ? 'active' : ''}
                     onClick={() => setMode('trend')}
                 >
-                    📈 Price Trends
+                    📈 Trends
                 </button>
                 <button
                     className={mode === 'forecast' ? 'active' : ''}
@@ -56,12 +56,32 @@ export const SelectionBar = ({ selectedDate, onDateChange, range, onRangeChange,
                 >
                     🔮 Forecast
                 </button>
+                <button
+                    className={mode === 'market-analysis' ? 'active' : ''}
+                    onClick={() => setMode('market-analysis')}
+                >
+                    🔗 Market Integration
+                </button>
+                <button
+                    className={mode === 'risk-analysis' ? 'active' : ''}
+                    onClick={() => setMode('risk-analysis')}
+                >
+                    ⚠️ Risk Index
+                </button>
             </div>
 
             {mode === 'daily' ? (
                 <DateSelector selectedDate={selectedDate} onDateChange={onDateChange} />
             ) : mode === 'trend' ? (
                 <RangeSelector range={range} onRangeChange={onRangeChange} />
+            ) : mode === 'market-analysis' ? (
+                <div className="filter-group">
+                    <span className="forecast-mode-hint">🔗 Spatial Price Dispersion & Market Integration Assessment</span>
+                </div>
+            ) : mode === 'risk-analysis' ? (
+                <div className="filter-group">
+                    <span className="forecast-mode-hint">⚠️ Price Stability, Shock Detection & Risk Index</span>
+                </div>
             ) : (
                 <div className="filter-group">
                     <span className="forecast-mode-hint">📅 12-month historical data analysis</span>

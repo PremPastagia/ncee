@@ -254,17 +254,21 @@ nav a:hover {
 /* Selection Bar */
 .selection-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   padding: 25px 40px;
   margin: 40px 0;
+  gap: 20px;
 }
 
 .mode-toggle {
   display: flex;
+  flex-wrap: wrap;
   background: rgba(0, 0, 0, 0.2);
   padding: 5px;
   border-radius: 12px;
+  gap: 4px;
 }
 
 .mode-toggle button {

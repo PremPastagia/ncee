@@ -5,7 +5,6 @@ import {
   productionTrend,
   stateProduction,
   speciesDistribution,
-  cityPrices,
   generatePriceTrend
 } from './data/mockData';
 import { TrendLine, PieChart, BarChart } from './components/Charts';
@@ -18,10 +17,13 @@ import { generateForecast, movingAverage } from './utils/forecasting';
 import eggLogo from './assets/egg_logo.svg';
 
 function App() {
-  const [mode, setMode] = useState('daily'); // 'daily', 'trend', or 'forecast'
+  const [mode, setMode] = useState('daily'); // 'daily', 'trend', 'forecast', 'market-analysis', 'risk-analysis'
   const [sheetType, setSheetType] = useState('daily'); // 'daily' or 'monthly'
-  const [selectedDate, setSelectedDate] = useState('2026-01-28');
-  const [range, setRange] = useState({ start: '2026-01-01', end: '2026-01-28' });
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [range, setRange] = useState({ start: monthStart, end: todayStr });
   const [currentTrend, setCurrentTrend] = useState([]);
   const [livePrices, setLivePrices] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -37,6 +39,11 @@ function App() {
   const [forecastLoading, setForecastLoading] = useState(false);
   const [availableCities, setAvailableCities] = useState([]);
 
+  // Full daily data cache (used by Trends, Forecast, Market, Risk)
+  const [fullDailyData, setFullDailyData] = useState(null);
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // Filter prices based on search
   const filteredPrices = livePrices.filter(p =>
     p.city.toLowerCase().includes(searchQuery.toLowerCase())
@@ -51,7 +58,9 @@ function App() {
     maxCity: livePrices.find(p => p.price === Math.max(...livePrices.map(x => x.price)))?.city
   } : null;
 
-  // Fetch real-time data from our local API
+  // ──────────────────────────────────────────────
+  // FETCH 1: Basic live prices for price table
+  // ──────────────────────────────────────────────
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -71,7 +80,6 @@ function App() {
             tray30: d.price * 30,
             box180: d.price * 180
           })));
-          // Update available cities for forecast selection
           setAvailableCities(data.map(d => d.city));
         }
       } catch (err) {
@@ -84,72 +92,135 @@ function App() {
     fetchData();
   }, [selectedDate, sheetType]);
 
-  // Fetch historical data for forecasting
+  // ──────────────────────────────────────────────
+  // FETCH 2: Full daily data for current month (Trends tab)
+  // ──────────────────────────────────────────────
   useEffect(() => {
-    const fetchForecastData = async () => {
-      if (mode !== 'forecast') return;
-
-      setForecastLoading(true);
-
+    if (mode !== 'trend') return;
+    const fetchFullData = async () => {
+      setTrendLoading(true);
       try {
-        // Use a fast approach: generate simulated historical data based on current prices
-        // This avoids slow sequential API calls to scrape past months
-        const now = new Date();
-        const historicalPrices = [];
+        const dateObj = new Date(selectedDate);
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = String(dateObj.getFullYear());
 
-        // Get base price from current live data or use default
-        const basePrice = livePrices.length > 0
-          ? (selectedCity === 'all'
-            ? livePrices.reduce((sum, p) => sum + p.price, 0) / livePrices.length
-            : livePrices.find(p => p.city === selectedCity)?.price || 5.50)
-          : 5.50;
-
-        // Generate 12 months of simulated historical data with realistic variation
-        for (let i = 11; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 15);
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const year = String(d.getFullYear());
-
-          // Add realistic seasonal variation and trend depending on month
-          const seasonalFactor = 1 + 0.05 * Math.sin((d.getMonth() / 12) * 2 * Math.PI);
-
-          // Add some randomness to make different models distinct
-          const randomTrend = Math.random() > 0.5 ? 0.02 : -0.01;
-          const trendFactor = 1 + (i / 100) + (randomTrend * (i % 3));
-          const randomNoise = 0.95 + Math.random() * 0.1;
-
-          const price = basePrice * seasonalFactor * trendFactor * randomNoise;
-
-          historicalPrices.push({
-            date: `${year}-${month}-15`,
-            price: price.toFixed(2)
+        const response = await fetch(`/api/egg-prices?month=${month}&year=${year}&type=Daily+Rate+Sheet&format=full`);
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setFullDailyData(data);
+          // Build trend from average daily price across all cities
+          const dayMap = {};
+          data.forEach(city => {
+            if (city.dailyPrices) {
+              city.dailyPrices.forEach(dp => {
+                if (!dayMap[dp.date]) dayMap[dp.date] = [];
+                dayMap[dp.date].push(dp.price);
+              });
+            }
           });
-        }
-
-        setHistoricalData(historicalPrices);
-
-        // Generate forecast with selected model
-        if (historicalPrices.length >= 3) {
-          const result = generateForecast(historicalPrices, forecastDays, forecastModel);
-          setForecastResult(result);
+          const trendData = Object.entries(dayMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, prices]) => ({
+              date,
+              price: (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2)
+            }));
+          setCurrentTrend(trendData);
         }
       } catch (err) {
-        console.error("Failed to generate forecast data:", err);
-        // Fallback to basic mock data
-        const mockHistorical = generatePriceTrend(
-          new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          new Date().toISOString().split('T')[0]
-        ).filter((_, i) => i % 30 === 0);
-        setHistoricalData(mockHistorical);
-        const result = generateForecast(mockHistorical, forecastDays, forecastModel);
-        setForecastResult(result);
+        console.error("Failed to fetch full daily data:", err);
       } finally {
-        setForecastLoading(false);
+        setTrendLoading(false);
       }
     };
+    fetchFullData();
+  }, [mode, selectedDate]);
 
-    fetchForecastData();
-  }, [mode, selectedCity, forecastDays, forecastModel, livePrices]);
+  // ──────────────────────────────────────────────
+  // FETCH 3: Multi-month history (Forecast, Market Analysis, Risk Analysis)
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!['forecast', 'market-analysis', 'risk-analysis'].includes(mode)) return;
+    if (historyData) return; // Already fetched
+
+    const fetchHistory = async () => {
+      setHistoryLoading(true);
+      try {
+        const response = await fetch(`/api/egg-prices-history?months=6`);
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setHistoryData(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch history:", err);
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [mode]);
+
+  // ──────────────────────────────────────────────
+  // PROCESS: Build forecast from actual NECC historical data
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'forecast' || !historyData) return;
+    setForecastLoading(true);
+
+    try {
+      // Extract daily prices for selected city (or average all cities)
+      const historicalPrices = [];
+
+      historyData.forEach(monthData => {
+        if (!monthData.data || !Array.isArray(monthData.data)) return;
+
+        monthData.data.forEach(city => {
+          if (!city.dailyPrices) return;
+          if (selectedCity !== 'all' && city.city !== selectedCity) return;
+
+          city.dailyPrices.forEach(dp => {
+            historicalPrices.push({ date: dp.date, price: dp.price, city: city.city });
+          });
+        });
+      });
+
+      // If "all cities", average prices per day
+      let processedData;
+      if (selectedCity === 'all') {
+        const dayMap = {};
+        historicalPrices.forEach(hp => {
+          if (!dayMap[hp.date]) dayMap[hp.date] = [];
+          dayMap[hp.date].push(hp.price);
+        });
+        processedData = Object.entries(dayMap)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, prices]) => ({
+            date,
+            price: (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2)
+          }));
+      } else {
+        processedData = historicalPrices
+          .filter(hp => hp.city === selectedCity)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map(hp => ({ date: hp.date, price: hp.price.toFixed ? hp.price.toFixed(2) : String(hp.price) }));
+      }
+
+      // Sample to monthly-ish points for forecast model (too many daily points can overwhelm)
+      const sampledData = processedData.length > 30
+        ? processedData.filter((_, i) => i % Math.max(1, Math.floor(processedData.length / 30)) === 0)
+        : processedData;
+
+      setHistoricalData(sampledData);
+
+      if (sampledData.length >= 3) {
+        const result = generateForecast(sampledData, forecastDays, forecastModel);
+        setForecastResult(result);
+      }
+    } catch (err) {
+      console.error("Failed to process forecast data:", err);
+    } finally {
+      setForecastLoading(false);
+    }
+  }, [mode, historyData, selectedCity, forecastDays, forecastModel]);
 
 
   return (
@@ -227,31 +298,50 @@ function App() {
             </>
           ) : mode === 'trend' ? (
             <div className="visual-card glass-card span-2">
-              <h3>Price Trend Timeline (₹ per Egg) {trendLoading && <span className="loader-small">⚡ Loading historical data...</span>}</h3>
+              <h3>Price Trend Timeline — Actual NECC Daily Prices (₹ per Egg) {trendLoading && <span className="loader-small">⚡ Fetching from NECC...</span>}</h3>
               <div className="trend-container">
                 {trendLoading ? (
                   <div style={{ textAlign: 'center', padding: '80px', color: 'var(--text-dim)' }}>
-                    Fetching monthly averages from NECC...
+                    <div className="loading-spinner" style={{ margin: '0 auto 20px' }}></div>
+                    Fetching actual daily prices from NECC for this month...
                   </div>
                 ) : (
                   <TrendLine data={currentTrend} color="var(--primary)" width={800} height={300} />
                 )}
               </div>
+              {!trendLoading && currentTrend.length > 0 && (
+                <div className="forecast-description" style={{ marginTop: '20px' }}>
+                  <p>
+                    <strong>📊 Data Source:</strong> Average daily egg prices across all production & consumption centres, 
+                    scraped from NECC (e2necc.com). Showing {currentTrend.length} days of actual price data.
+                  </p>
+                </div>
+              )}
             </div>
           ) : mode === 'market-analysis' ? (
             <div className="visual-card glass-card span-2">
-              <MarketAnalysis livePrices={livePrices} loading={loading} />
+              <MarketAnalysis 
+                livePrices={livePrices} 
+                loading={loading} 
+                historyData={historyData}
+                historyLoading={historyLoading}
+              />
             </div>
           ) : mode === 'risk-analysis' ? (
             <div className="visual-card glass-card span-2">
-              <RiskAnalysis livePrices={livePrices} loading={loading} />
+              <RiskAnalysis 
+                livePrices={livePrices} 
+                loading={loading}
+                historyData={historyData}
+                historyLoading={historyLoading}
+              />
             </div>
           ) : (
             <div className="visual-card glass-card span-2 forecast-section">
               <h3>
                 <span className="forecast-title-icon">🔮</span>
-                Price Prediction of Egg Market
-                {forecastLoading && <span className="loader-small">⚡ Building forecast model...</span>}
+                Price Prediction — Based on Actual NECC Data
+                {(forecastLoading || historyLoading) && <span className="loader-small">⚡ {historyLoading ? 'Fetching 6 months of NECC data...' : 'Building forecast model...'}</span>}
               </h3>
 
               <ForecastControls
@@ -266,10 +356,10 @@ function App() {
               />
 
               <div className="forecast-chart-container">
-                {forecastLoading ? (
+                {(forecastLoading || historyLoading) ? (
                   <div className="forecast-loading">
                     <div className="loading-spinner"></div>
-                    <p>Analyzing historical data and generating predictions...</p>
+                    <p>{historyLoading ? 'Fetching 6 months of actual NECC price data...' : 'Analyzing historical data and generating predictions...'}</p>
                   </div>
                 ) : (
                   <ForecastChart
@@ -286,7 +376,7 @@ function App() {
                   <strong>📊 Analysis:</strong> This forecast uses
                   {forecastModel === 'seasonal' ? ' Seasonal Decomposition' :
                     forecastModel === 'wma' ? ' Weighted Moving Average' :
-                      ' Exponential Smoothing'} on the last 12 months of NECC price data
+                      ' Exponential Smoothing'} on <strong>actual NECC price data</strong> from the last 6 months
                   to predict future egg prices. The shaded area represents the 95% confidence interval.
                 </p>
               </div>

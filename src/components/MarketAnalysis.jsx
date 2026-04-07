@@ -20,6 +20,33 @@ import {
  * Static version of historical price generation (for chart props)
  * This is deterministic — same inputs always give same outputs.
  */
+/**
+ * Extract actual NECC prices from history data for a given city
+ */
+function extractRealPrices(cityName, historyData) {
+  const prices = [];
+  const dates = [];
+  if (!historyData || !Array.isArray(historyData)) return { prices, dates };
+
+  historyData.forEach(monthData => {
+    if (!monthData.data || !Array.isArray(monthData.data)) return;
+    const cityData = monthData.data.find(
+      c => c.city && c.city.toLowerCase().includes(cityName.toLowerCase())
+    );
+    if (cityData && cityData.dailyPrices) {
+      cityData.dailyPrices.forEach(dp => {
+        prices.push(dp.price);
+        dates.push(dp.date);
+      });
+    }
+  });
+
+  return { prices, dates };
+}
+
+/**
+ * Fallback: generate synthetic prices when real data isn't available
+ */
 function generateHistoricalPricesStatic(cityName, livePrices, months) {
   const today = new Date();
   const baseLive = livePrices.find(
@@ -30,21 +57,11 @@ function generateHistoricalPricesStatic(cityName, livePrices, months) {
   const dates = [];
   for (let m = months - 1; m >= 0; m--) {
     const monthDate = new Date(today.getFullYear(), today.getMonth() - m, 1);
-    const daysInMonth = new Date(
-      monthDate.getFullYear(),
-      monthDate.getMonth() + 1,
-      0
-    ).getDate();
+    const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
     const seed = cityName.charCodeAt(0) + m * 7;
     for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(
-        monthDate.getFullYear(),
-        monthDate.getMonth(),
-        d
-      );
-      const dayOfYear = Math.floor(
-        (date - new Date(date.getFullYear(), 0, 0)) / 86400000
-      );
+      const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), d);
+      const dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
       const seasonal = 0.06 * Math.sin((dayOfYear / 365) * 2 * Math.PI - 1);
       const trend = 0.001 * (months - m);
       const weekly = 0.01 * Math.sin((d / 7) * 2 * Math.PI);
@@ -60,17 +77,15 @@ function generateHistoricalPricesStatic(cityName, livePrices, months) {
 /**
  * MarketAnalysis — full dashboard section for Spatial Price Dispersion
  * and Market Integration between a selected producer and consumer state.
+ * Now uses actual NECC historical data when available.
  */
-const MarketAnalysis = ({ livePrices = [], loading = false }) => {
+const MarketAnalysis = ({ livePrices = [], loading = false, historyData = null, historyLoading = false }) => {
   const [producerState, setProducerState] = useState('namakkal');
   const [consumerState, setConsumerState] = useState('delhi');
   const [monthsToAnalyze, setMonthsToAnalyze] = useState(6);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [generating, setGenerating] = useState(false);
-
-  const generateHistoricalPrices = (cityName, months) => {
-    return generateHistoricalPricesStatic(cityName, livePrices, months);
-  };
+  const [usingRealData, setUsingRealData] = useState(false);
 
   useEffect(() => {
     if (livePrices.length === 0) return;
@@ -78,8 +93,28 @@ const MarketAnalysis = ({ livePrices = [], loading = false }) => {
     const timer = setTimeout(() => {
       const producerCity = STATE_TO_CITY[producerState] || 'Namakkal';
       const consumerCity = STATE_TO_CITY[consumerState] || 'Delhi';
-      const producer = generateHistoricalPrices(producerCity, monthsToAnalyze);
-      const consumer = generateHistoricalPrices(consumerCity, monthsToAnalyze);
+
+      let producer, consumer;
+
+      // Try to use actual NECC data first
+      if (historyData && Array.isArray(historyData) && historyData.length > 0) {
+        producer = extractRealPrices(producerCity, historyData);
+        consumer = extractRealPrices(consumerCity, historyData);
+
+        if (producer.prices.length > 10 && consumer.prices.length > 10) {
+          setUsingRealData(true);
+        } else {
+          // Fallback to synthetic if real data is sparse
+          producer = generateHistoricalPricesStatic(producerCity, livePrices, monthsToAnalyze);
+          consumer = generateHistoricalPricesStatic(consumerCity, livePrices, monthsToAnalyze);
+          setUsingRealData(false);
+        }
+      } else {
+        producer = generateHistoricalPricesStatic(producerCity, livePrices, monthsToAnalyze);
+        consumer = generateHistoricalPricesStatic(consumerCity, livePrices, monthsToAnalyze);
+        setUsingRealData(false);
+      }
+
       const producerLabel =
         STATE_CATEGORIES.producers.find((s) => s.id === producerState)?.label ||
         producerCity;
@@ -94,7 +129,7 @@ const MarketAnalysis = ({ livePrices = [], loading = false }) => {
       setGenerating(false);
     }, 300);
     return () => clearTimeout(timer);
-  }, [producerState, consumerState, monthsToAnalyze, livePrices]);
+  }, [producerState, consumerState, monthsToAnalyze, livePrices, historyData]);
 
   const producerLabel =
     STATE_CATEGORIES.producers.find((s) => s.id === producerState)?.label || '';
@@ -111,6 +146,16 @@ const MarketAnalysis = ({ livePrices = [], loading = false }) => {
           <p className="ma-subtitle">
             Evaluate price volatility, co-movement, and transmission efficiency between producing and consuming regions.
           </p>
+          {historyLoading && (
+            <p style={{ color: '#FFD700', fontSize: '0.85rem', marginTop: '6px' }}>
+              ⚡ Fetching 6 months of actual NECC data for analysis...
+            </p>
+          )}
+          {!historyLoading && (
+            <p style={{ color: usingRealData ? '#4CAF50' : '#FF9800', fontSize: '0.8rem', marginTop: '6px' }}>
+              {usingRealData ? '✅ Using actual NECC scraped data' : '⚠️ Using price-seeded model (history loading...)'}
+            </p>
+          )}
         </div>
       </div>
 
