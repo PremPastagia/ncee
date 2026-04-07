@@ -1,8 +1,10 @@
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import json
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
+
 
 def scrape_necc(month="01", year="2026", report_type="Daily Rate Sheet"):
     url = "https://e2necc.com/home/eggprice"
@@ -13,18 +15,14 @@ def scrape_necc(month="01", year="2026", report_type="Daily Rate Sheet"):
         "__EVENTTARGET": "",
         "__EVENTARGUMENT": "",
     }
-    
     try:
         s = requests.Session()
         r1 = s.get(url)
         soup1 = BeautifulSoup(r1.text, 'html.parser')
-        
         for hidden in soup1.find_all("input", type="hidden"):
             payload[hidden.get("name")] = hidden.get("value")
-            
         response = s.post(url, data=payload, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        
         tables = soup.find_all('table')
         data = []
         for table in tables:
@@ -38,27 +36,8 @@ def scrape_necc(month="01", year="2026", report_type="Daily Rate Sheet"):
     except Exception as e:
         return {"error": str(e)}
 
-def clean_data(raw_data):
-    if isinstance(raw_data, dict) and "error" in raw_data:
-        return raw_data
-        
-    cities_data = []
-    for row in raw_data:
-        if len(row) > 30 and row[0] not in ["Name Of Zone / Day", "NECC SUGGESTED EGG PRICES"]:
-            city = row[0]
-            prices = [p for p in row[1:32] if p not in ["-", ""]]
-            latest_price = float(prices[-1]) / 100 if prices else 0
-            avg_price = float(row[-1]) / 100 if row[-1] not in ["-", ""] else 0
-            
-            cities_data.append({
-                "city": city.replace("(CC)", "").replace("(OD)", "").replace("(WB)", "").strip(),
-                "price": latest_price or avg_price,
-                "avg": avg_price
-            })
-    return cities_data
 
 def clean_data_full(raw_data, month, year):
-    """Return full daily price arrays for each city."""
     if isinstance(raw_data, dict) and "error" in raw_data:
         return raw_data
     if not isinstance(raw_data, list):
@@ -96,26 +75,39 @@ def clean_data_full(raw_data, month, year):
             })
     return cities_data
 
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
-        
-        month = query_params.get('month', ['01'])[0]
-        year = query_params.get('year', ['2026'])[0]
+
+        num_months = int(query_params.get('months', ['6'])[0])
         report_type = query_params.get('type', ['Daily Rate Sheet'])[0]
-        fmt = query_params.get('format', ['simple'])[0]
-        
-        raw_data = scrape_necc(month, year, report_type)
-        
-        if fmt == 'full':
-            cleaned_data = clean_data_full(raw_data, month, year)
-        else:
-            cleaned_data = clean_data(raw_data)
-        
+
+        now = datetime.now()
+        results = []
+
+        for i in range(num_months - 1, -1, -1):
+            # Calculate month/year going backwards
+            target_month = now.month - i
+            target_year = now.year
+            while target_month <= 0:
+                target_month += 12
+                target_year -= 1
+
+            m = str(target_month).zfill(2)
+            y = str(target_year)
+
+            try:
+                raw = scrape_necc(m, y, report_type)
+                data = clean_data_full(raw, m, y)
+                results.append({"month": m, "year": y, "data": data})
+            except Exception as e:
+                results.append({"month": m, "year": y, "data": [], "error": str(e)})
+
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(cleaned_data).encode('utf-8'))
+        self.wfile.write(json.dumps(results).encode('utf-8'))
         return
