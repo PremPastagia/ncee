@@ -67,8 +67,9 @@ def run_sarima_forecast(prices, dates, forecast_days=5, seasonal_period=7):
         
         # Generate forecasts
         forecast_result = results.get_forecast(steps=forecast_days)
-        forecast_mean = forecast_result.predicted_mean
-        conf_int = forecast_result.conf_int(alpha=0.05)  # 95% confidence
+        forecast_mean = np.array(forecast_result.predicted_mean).flatten()
+        conf_int_raw = forecast_result.conf_int(alpha=0.05)  # 95% confidence
+        conf_int_arr = np.array(conf_int_raw)
         
         # Build forecast array
         from datetime import datetime, timedelta
@@ -77,9 +78,9 @@ def run_sarima_forecast(prices, dates, forecast_days=5, seasonal_period=7):
         forecast = []
         for i in range(forecast_days):
             fd = last_date + timedelta(days=i + 1)
-            pred = float(forecast_mean.iloc[i])
-            lower = float(conf_int.iloc[i, 0])
-            upper = float(conf_int.iloc[i, 1])
+            pred = float(forecast_mean[i])
+            lower = float(conf_int_arr[i, 0])
+            upper = float(conf_int_arr[i, 1])
             
             forecast.append({
                 "date": fd.strftime("%Y-%m-%d"),
@@ -101,13 +102,13 @@ def run_sarima_forecast(prices, dates, forecast_days=5, seasonal_period=7):
         # Ljung-Box test for residual autocorrelation
         try:
             from statsmodels.stats.diagnostic import acorr_ljungbox
-            lb_result = acorr_ljungbox(residuals, lags=[min(10, n//5)], return_df=True)
-            lb_pvalue = round(float(lb_result['lb_pvalue'].iloc[0]), 4)
+            lb_result = acorr_ljungbox(residuals, lags=[min(10, max(1, n//5))], return_df=True)
+            lb_pvalue = round(float(lb_result['lb_pvalue'].values[0]), 4)
         except Exception:
             lb_pvalue = None
         
         # Price trend
-        slope = float(forecast_mean.iloc[-1] - forecast_mean.iloc[0]) / max(1, forecast_days)
+        slope = float(forecast_mean[-1] - forecast_mean[0]) / max(1, forecast_days)
         trend = "rising" if slope > 0.01 else "falling" if slope < -0.01 else "stable"
         
         # Volatility
@@ -116,9 +117,12 @@ def run_sarima_forecast(prices, dates, forecast_days=5, seasonal_period=7):
         volatility = round((price_std / price_mean) * 100, 1) if price_mean > 0 else 0
         
         # R-squared approximation using in-sample fit
-        fitted = results.fittedvalues
-        ss_res = float(np.sum((y[1:] - fitted[1:]) ** 2))  # skip first (differenced)
-        ss_tot = float(np.sum((y[1:] - np.mean(y[1:])) ** 2))
+        fitted = np.array(results.fittedvalues).flatten()
+        y_tail = y[1:len(fitted)+1] if len(fitted) < len(y) else y[1:]
+        f_tail = fitted[1:] if len(fitted) > 1 else fitted
+        min_len = min(len(y_tail), len(f_tail))
+        ss_res = float(np.sum((y_tail[:min_len] - f_tail[:min_len]) ** 2))
+        ss_tot = float(np.sum((y_tail[:min_len] - np.mean(y_tail[:min_len])) ** 2))
         r_squared = round(max(0, 1 - ss_res / ss_tot), 4) if ss_tot > 0 else 0
         
         return {
