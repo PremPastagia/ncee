@@ -32,7 +32,7 @@ function App() {
 
   // Forecast state
   const [forecastDays, setForecastDays] = useState(5);
-  const [forecastModel, setForecastModel] = useState('seasonal');
+  const [forecastModel, setForecastModel] = useState('sarima');
   const [selectedCity, setSelectedCity] = useState('all');
   const [historicalData, setHistoricalData] = useState([]);
   const [forecastResult, setForecastResult] = useState({ forecast: [], metrics: {} });
@@ -164,62 +164,105 @@ function App() {
   // ──────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'forecast' || !historyData) return;
-    setForecastLoading(true);
 
-    try {
-      // Extract daily prices for selected city (or average all cities)
-      const historicalPrices = [];
+    const runForecast = async () => {
+      setForecastLoading(true);
 
-      historyData.forEach(monthData => {
-        if (!monthData.data || !Array.isArray(monthData.data)) return;
+      try {
+        // Extract daily prices for selected city (or average all cities)
+        const historicalPrices = [];
 
-        monthData.data.forEach(city => {
-          if (!city.dailyPrices) return;
-          if (selectedCity !== 'all' && city.city !== selectedCity) return;
+        historyData.forEach(monthData => {
+          if (!monthData.data || !Array.isArray(monthData.data)) return;
 
-          city.dailyPrices.forEach(dp => {
-            historicalPrices.push({ date: dp.date, price: dp.price, city: city.city });
+          monthData.data.forEach(city => {
+            if (!city.dailyPrices) return;
+            if (selectedCity !== 'all' && city.city !== selectedCity) return;
+
+            city.dailyPrices.forEach(dp => {
+              historicalPrices.push({ date: dp.date, price: dp.price, city: city.city });
+            });
           });
         });
-      });
 
-      // If "all cities", average prices per day
-      let processedData;
-      if (selectedCity === 'all') {
-        const dayMap = {};
-        historicalPrices.forEach(hp => {
-          if (!dayMap[hp.date]) dayMap[hp.date] = [];
-          dayMap[hp.date].push(hp.price);
-        });
-        processedData = Object.entries(dayMap)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, prices]) => ({
-            date,
-            price: (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2)
-          }));
-      } else {
-        processedData = historicalPrices
-          .filter(hp => hp.city === selectedCity)
-          .sort((a, b) => a.date.localeCompare(b.date))
-          .map(hp => ({ date: hp.date, price: hp.price.toFixed ? hp.price.toFixed(2) : String(hp.price) }));
+        // If "all cities", average prices per day
+        let processedData;
+        if (selectedCity === 'all') {
+          const dayMap = {};
+          historicalPrices.forEach(hp => {
+            if (!dayMap[hp.date]) dayMap[hp.date] = [];
+            dayMap[hp.date].push(hp.price);
+          });
+          processedData = Object.entries(dayMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, prices]) => ({
+              date,
+              price: parseFloat((prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2))
+            }));
+        } else {
+          processedData = historicalPrices
+            .filter(hp => hp.city === selectedCity)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(hp => ({ date: hp.date, price: typeof hp.price === 'number' ? hp.price : parseFloat(hp.price) }));
+        }
+
+        setHistoricalData(processedData);
+
+        if (processedData.length < 3) {
+          setForecastLoading(false);
+          return;
+        }
+
+        // ── SARIMA: Call Python backend ──
+        if (forecastModel === 'sarima') {
+          try {
+            const response = await fetch('/api/forecast-sarima', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prices: processedData.map(d => d.price),
+                dates: processedData.map(d => d.date),
+                forecastDays: forecastDays
+              })
+            });
+            const sarimaResult = await response.json();
+
+            if (sarimaResult.error || sarimaResult.fallback) {
+              // Fallback to JS seasonal model
+              console.warn('SARIMA fallback:', sarimaResult.error);
+              const fallback = generateForecast(
+                processedData.map(d => ({ date: d.date, price: d.price.toFixed(2) })),
+                forecastDays, 'seasonal'
+              );
+              setForecastResult(fallback);
+            } else {
+              setForecastResult(sarimaResult);
+            }
+          } catch (apiErr) {
+            console.error('SARIMA API error:', apiErr);
+            // Fallback
+            const fallback = generateForecast(
+              processedData.map(d => ({ date: d.date, price: d.price.toFixed(2) })),
+              forecastDays, 'seasonal'
+            );
+            setForecastResult(fallback);
+          }
+        } else {
+          // ── JS Models (seasonal, wma, ets) ──
+          const result = generateForecast(
+            processedData.map(d => ({ date: d.date, price: d.price.toFixed(2) })),
+            forecastDays, forecastModel
+          );
+          setForecastResult(result);
+        }
+      } catch (err) {
+        console.error("Failed to process forecast data:", err);
+      } finally {
+        setForecastLoading(false);
       }
+    };
 
-      // Sample to monthly-ish points for forecast model (too many daily points can overwhelm)
-      const sampledData = processedData.length > 30
-        ? processedData.filter((_, i) => i % Math.max(1, Math.floor(processedData.length / 30)) === 0)
-        : processedData;
-
-      setHistoricalData(sampledData);
-
-      if (sampledData.length >= 3) {
-        const result = generateForecast(sampledData, forecastDays, forecastModel);
-        setForecastResult(result);
-      }
-    } catch (err) {
-      console.error("Failed to process forecast data:", err);
-    } finally {
-      setForecastLoading(false);
-    }
+    runForecast();
   }, [mode, historyData, selectedCity, forecastDays, forecastModel]);
 
 
@@ -359,7 +402,7 @@ function App() {
                 {(forecastLoading || historyLoading) ? (
                   <div className="forecast-loading">
                     <div className="loading-spinner"></div>
-                    <p>{historyLoading ? 'Fetching 6 months of actual NECC price data...' : 'Analyzing historical data and generating predictions...'}</p>
+                    <p>{historyLoading ? 'Fetching 6 months of actual NECC price data...' : forecastModel === 'sarima' ? '🔬 Running SARIMA model via Python statsmodels...' : 'Analyzing historical data and generating predictions...'}</p>
                   </div>
                 ) : (
                   <ForecastChart
@@ -373,12 +416,24 @@ function App() {
 
               <div className="forecast-description">
                 <p>
-                  <strong>📊 Analysis:</strong> This forecast uses
-                  {forecastModel === 'seasonal' ? ' Seasonal Decomposition' :
+                  <strong>📊 Model:</strong> This forecast uses
+                  {forecastModel === 'sarima' ? ' SARIMA (Seasonal AutoRegressive Integrated Moving Average) via Python statsmodels' :
+                    forecastModel === 'seasonal' ? ' Seasonal Decomposition' :
                     forecastModel === 'wma' ? ' Weighted Moving Average' :
                       ' Exponential Smoothing'} on <strong>actual NECC price data</strong> from the last 6 months
-                  to predict future egg prices. The shaded area represents the 95% confidence interval.
+                  to predict the next {forecastDays} days of egg prices. The shaded area represents the 95% confidence interval.
                 </p>
+                {forecastResult.diagnostics && (
+                  <p style={{ marginTop: '10px', fontSize: '0.85rem', color: 'var(--text-dim)' }}>
+                    <strong>📐 Diagnostics:</strong> {forecastResult.diagnostics.model} | 
+                    AIC: {forecastResult.diagnostics.aic} | 
+                    BIC: {forecastResult.diagnostics.bic} | 
+                    R²: {forecastResult.diagnostics.rSquared} | 
+                    Data points: {forecastResult.diagnostics.dataPoints} | 
+                    Seasonal period: {forecastResult.diagnostics.seasonalPeriod} days
+                    {forecastResult.diagnostics.ljungBoxPValue !== null && ` | Ljung-Box p: ${forecastResult.diagnostics.ljungBoxPValue}`}
+                  </p>
+                )}
               </div>
             </div>
           )}
