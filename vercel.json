@@ -1,31 +1,12 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/**/*.py",
-      "use": "@vercel/python"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "package.json",
-      "use": "@vercel/vite"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/egg-prices-history",
-      "dest": "/api/egg-prices-history.py"
-    },
-    {
-      "src": "/api/forecast-sarima",
-      "dest": "/api/forecast-sarima.py"
-    },
-    {
-      "src": "/api/egg-prices",
-      "dest": "/api/egg-prices.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
