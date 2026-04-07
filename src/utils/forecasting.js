@@ -323,8 +323,8 @@ export function generateForecast(historicalData, forecastDays = 30, modelType = 
             volatility: volatility.toFixed(1),
             confidence: (r2 * 100).toFixed(0),
             avgPrice: mean.toFixed(2),
-            predictedNextWeek: forecast[6]?.predicted || 0,
-            predictedNextMonth: forecast[29]?.predicted || forecast[forecast.length - 1]?.predicted || 0
+            predictedTomorrow: forecast[0]?.predicted || 0,
+            predictedEnd: forecast[forecast.length - 1]?.predicted || 0
         }
     };
 }

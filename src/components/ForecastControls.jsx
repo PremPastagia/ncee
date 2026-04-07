@@ -11,10 +11,10 @@ export const ForecastControls = ({
     setModel = () => { }
 }) => {
     const horizonOptions = [
+        { days: 3, label: '3 Days' },
+        { days: 5, label: '5 Days' },
         { days: 7, label: '1 Week' },
-        { days: 14, label: '2 Weeks' },
-        { days: 30, label: '1 Month' },
-        { days: 90, label: '3 Months' }
+        { days: 14, label: '2 Weeks' }
     ];
 
     const trendColors = {
@@ -110,16 +110,16 @@ export const ForecastControls = ({
                     <div className="metric-card">
                         <span className="metric-icon">🎯</span>
                         <div className="metric-content">
-                            <span className="metric-label">Predicted (Next Week)</span>
-                            <span className="metric-value">₹{metrics.predictedNextWeek}</span>
+                            <span className="metric-label">Tomorrow</span>
+                            <span className="metric-value">₹{metrics.predictedTomorrow}</span>
                         </div>
                     </div>
 
                     <div className="metric-card">
                         <span className="metric-icon">📅</span>
                         <div className="metric-content">
-                            <span className="metric-label">Predicted (Next Month)</span>
-                            <span className="metric-value">₹{metrics.predictedNextMonth}</span>
+                            <span className="metric-label">Day {forecastDays}</span>
+                            <span className="metric-value">₹{metrics.predictedEnd}</span>
                         </div>
                     </div>
                 </div>

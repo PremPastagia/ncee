@@ -31,7 +31,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Forecast state
-  const [forecastDays, setForecastDays] = useState(30);
+  const [forecastDays, setForecastDays] = useState(5);
   const [forecastModel, setForecastModel] = useState('seasonal');
   const [selectedCity, setSelectedCity] = useState('all');
   const [historicalData, setHistoricalData] = useState([]);
