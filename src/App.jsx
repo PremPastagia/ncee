@@ -13,10 +13,14 @@ import { ForecastChart } from './components/ForecastChart';
 import { ForecastControls } from './components/ForecastControls';
 import MarketAnalysis from './components/MarketAnalysis';
 import RiskAnalysis from './components/RiskAnalysis';
+import Login from './components/Login';
 import { generateForecast, movingAverage } from './utils/forecasting';
 import eggLogo from './assets/egg_logo.svg';
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('isLoggedIn') === 'true';
+  });
   const [mode, setMode] = useState('daily'); // 'daily', 'trend', 'forecast', 'market-analysis', 'risk-analysis'
   const [sheetType, setSheetType] = useState('daily'); // 'daily' or 'monthly'
   const today = new Date();
@@ -265,6 +269,19 @@ function App() {
     runForecast();
   }, [mode, historyData, selectedCity, forecastDays, forecastModel]);
 
+  const handleLogin = () => {
+    localStorage.setItem('isLoggedIn', 'true');
+    setIsLoggedIn(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('isLoggedIn');
+    setIsLoggedIn(false);
+  };
+
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app-container">
@@ -278,7 +295,7 @@ function App() {
           <a href="#stats">Statistics</a>
           <a href="#insights">Insights</a>
           <a href="#prices">Live Prices</a>
-          <button className="cta-btn">2009-2026 Data</button>
+          <button className="cta-btn" onClick={handleLogout}>Logout</button>
         </nav>
       </header>
 
