@@ -1,0 +1,11 @@
+:80 {
+    root * /srv
+    encode gzip
+    file_server
+
+    # Fallback routing for SPA
+    try_files {path} /index.html
+
+    # Route API requests to the backend service
+    reverse_proxy /api/* backend:3001
+}
