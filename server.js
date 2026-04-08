@@ -21,10 +21,10 @@ function runScraper(month, year, type, format) {
     }
 
     return new Promise((resolve, reject) => {
-        const args = ['scrape_data.py', month, year, type];
+        const args = ['read_local_data.py', 'data/egg_prices_timeseries_final.csv', month, year, type];
         if (format === 'full') args.push('full');
 
-        const pythonProcess = spawn('python', args);
+        const pythonProcess = spawn('python3', args);
         let dataString = '';
         let errorString = '';
 
@@ -105,7 +105,7 @@ app.post('/api/forecast-sarima', express.json(), (req, res) => {
     const { prices, dates, forecastDays } = req.body;
     console.log(`Running SARIMA forecast: ${prices?.length} data points, ${forecastDays} days ahead`);
 
-    const pythonProcess = spawn('python', ['sarima_forecast.py']);
+    const pythonProcess = spawn('python3', ['sarima_forecast.py']);
     let dataString = '';
     let errorString = '';
 

@@ -97,39 +97,58 @@ function App() {
   }, [selectedDate, sheetType]);
 
   // ──────────────────────────────────────────────
-  // FETCH 2: Full daily data for current month (Trends tab)
+  // FETCH 2: Full daily data for Date Range (Trends tab)
   // ──────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'trend') return;
     const fetchFullData = async () => {
       setTrendLoading(true);
       try {
-        const dateObj = new Date(selectedDate);
-        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const year = String(dateObj.getFullYear());
-
-        const response = await fetch(`/api/egg-prices?month=${month}&year=${year}&type=Daily+Rate+Sheet&format=full`);
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setFullDailyData(data);
-          // Build trend from average daily price across all cities
-          const dayMap = {};
-          data.forEach(city => {
-            if (city.dailyPrices) {
-              city.dailyPrices.forEach(dp => {
-                if (!dayMap[dp.date]) dayMap[dp.date] = [];
-                dayMap[dp.date].push(dp.price);
+        const start = new Date(range.start);
+        const end = new Date(range.end);
+        
+        let current = new Date(start.getFullYear(), start.getMonth(), 1);
+        const endLimit = new Date(end.getFullYear(), end.getMonth(), 1);
+        
+        const promises = [];
+        // Loop through every month within the range
+        while (current <= endLimit) {
+          const month = String(current.getMonth() + 1).padStart(2, '0');
+          const year = String(current.getFullYear());
+          promises.push(
+            fetch(`/api/egg-prices?month=${month}&year=${year}&type=Daily+Rate+Sheet&format=full`).then(r => r.json())
+          );
+          current.setMonth(current.getMonth() + 1);
+        }
+        
+        const responses = await Promise.all(promises);
+        
+        const dayMap = {};
+        responses.forEach(data => {
+            if (Array.isArray(data)) {
+              data.forEach(city => {
+                if (city.dailyPrices) {
+                  city.dailyPrices.forEach(dp => {
+                    const dpDate = new Date(dp.date);
+                    // Filter dates strictly between range.start and range.end
+                    if (dpDate >= start && dpDate <= end) {
+                        if (!dayMap[dp.date]) dayMap[dp.date] = [];
+                        dayMap[dp.date].push(dp.price);
+                    }
+                  });
+                }
               });
             }
-          });
-          const trendData = Object.entries(dayMap)
+        });
+        
+        const trendData = Object.entries(dayMap)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([date, prices]) => ({
               date,
               price: (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(2)
             }));
-          setCurrentTrend(trendData);
-        }
+            
+        setCurrentTrend(trendData);
       } catch (err) {
         console.error("Failed to fetch full daily data:", err);
       } finally {
@@ -137,7 +156,7 @@ function App() {
       }
     };
     fetchFullData();
-  }, [mode, selectedDate]);
+  }, [mode, range]);
 
   // ──────────────────────────────────────────────
   // FETCH 3: Multi-month history (Forecast, Market Analysis, Risk Analysis)
